@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>스포츠 참가 전 평가 (PPE)</title>
+<meta name="description" content="한국 실정에 맞춘 스포츠 참가 전 평가(PPE) 인터랙티브 도구"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<!-- PDF: window.open + print 방식 사용 (html2pdf.js 대비 한글 호환성 우수) -->
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body,#root{height:100%;width:100%;font-family:'Noto Sans KR','맑은 고딕','Malgun Gothic','Apple SD Gothic Neo',sans-serif;-webkit-font-smoothing:antialiased}
+body{overflow:hidden}
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(100,116,139,.3);border-radius:3px}
+input:focus{outline:none;border-color:#3b82f6!important;box-shadow:0 0 0 3px rgba(59,130,246,.12)}
+button{font-family:inherit;cursor:pointer}
+@media(max-width:800px){
+  .sidebar-desktop{display:none!important}
+  .mobile-toggle{display:flex!important}
+  .content-area{padding:20px 16px!important}
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef}=React;
+
+const SECTIONS=[
+  {id:"info",title:"기본 정보",icon:"👤",desc:"선수 기본 인적사항"},
+  {id:"history",title:"병력 조사",icon:"📋",desc:"과거 및 현재 의학적 병력"},
+  {id:"cardiac",title:"심혈관 선별검사",icon:"❤️",desc:"돌연 심장사 위험 요인 평가"},
+  {id:"musculo",title:"근골격계 검사",icon:"🦴",desc:"관절 및 근골격계 기능 평가"},
+  {id:"neuro",title:"신경학적/뇌진탕 평가",icon:"🧠",desc:"뇌진탕 이력 및 신경학적 선별"},
+  {id:"general",title:"일반 건강 평가",icon:"🩺",desc:"전반적 건강 상태 및 기타 요인"},
+  {id:"result",title:"판정 결과",icon:"📊",desc:"참가 허가 판정 및 권고사항"},
+];
+
+const SPORTS=["축구","농구","야구","배구","수영","육상(단거리)","육상(장거리)","태권도","유도","레슬링","복싱","체조","테니스","배드민턴","탁구","핸드볼","하키","럭비","골프","스키/스노보드","사이클","조정/카누","펜싱","양궁","역도","기타"];
+
+const CONTACT={"축구":"충돌/접촉","농구":"충돌/접촉","야구":"제한적 접촉","배구":"제한적 접촉","수영":"비접촉","육상(단거리)":"비접촉","육상(장거리)":"비접촉","태권도":"충돌/접촉","유도":"충돌/접촉","레슬링":"충돌/접촉","복싱":"충돌/접촉","체조":"제한적 접촉","테니스":"비접촉","배드민턴":"비접촉","탁구":"비접촉","핸드볼":"충돌/접촉","하키":"충돌/접촉","럭비":"충돌/접촉","골프":"비접촉","스키/스노보드":"제한적 접촉","사이클":"제한적 접촉","조정/카누":"비접촉","펜싱":"제한적 접촉","양궁":"비접촉","역도":"비접촉","기타":"미분류"};
+
+const QS={
+  history:[
+    {id:"h1",text:"이전에 스포츠 참가를 금지 또는 제한받은 적이 있습니까?",risk:"high"},
+    {id:"h2",text:"운동 중 또는 운동 후 어지러움, 실신, 흉통, 호흡곤란을 경험한 적이 있습니까?",risk:"high"},
+    {id:"h3",text:"현재 복용 중인 약물이나 보충제가 있습니까?",risk:"low"},
+    {id:"h4",text:"과거 수술 이력이 있습니까?",risk:"medium"},
+    {id:"h5",text:"알레르기(약물, 음식, 라텍스 등)가 있습니까?",risk:"low"},
+    {id:"h6",text:"현재 질병으로 치료 중이거나 지속적인 의료 관리를 받고 있습니까?",risk:"medium"},
+    {id:"h7",text:"최근 6개월 이내 입원한 적이 있습니까?",risk:"medium"},
+    {id:"h8",text:"예방접종(파상풍 등)이 최신 상태입니까?",risk:"low"},
+  ],
+  cardiac:[
+    {id:"c1",text:"운동 중 가슴 통증, 압박감, 또는 불편감을 느낀 적이 있습니까?",risk:"critical"},
+    {id:"c2",text:"운동 중 또는 직후 의식을 잃거나 거의 잃을 뻔한 적이 있습니까?",risk:"critical"},
+    {id:"c3",text:"운동 시 또래에 비해 과도한 피로감이나 호흡곤란을 경험합니까?",risk:"high"},
+    {id:"c4",text:"심잡음(heart murmur)을 진단받은 적이 있습니까?",risk:"high"},
+    {id:"c5",text:"고혈압을 진단받은 적이 있습니까?",risk:"medium"},
+    {id:"c6",text:"가족 중 50세 이전에 심장 관련 사망(돌연사 포함)한 사람이 있습니까?",risk:"critical"},
+    {id:"c7",text:"가족 중 비대심근병증, 마르판 증후군, 부정맥, QT 연장 증후군 등을 진단받은 사람이 있습니까?",risk:"critical"},
+    {id:"c8",text:"가족 중 심장 이식이나 삽입형 제세동기(ICD)를 사용하는 사람이 있습니까?",risk:"high"},
+    {id:"c9",text:"가와사키병(Kawasaki disease)을 진단받은 적이 있습니까?",risk:"high"},
+    {id:"c10",text:"안정 시 심박수가 분당 100회 이상이거나 40회 미만입니까?",risk:"medium"},
+  ],
+  musculo:[
+    {id:"m1",text:"현재 통증이 있는 관절이나 부위가 있습니까?",risk:"medium"},
+    {id:"m2",text:"과거 골절, 탈구, 또는 인대 손상 이력이 있습니까?",risk:"medium"},
+    {id:"m3",text:"과거 수술(관절경, 인대 재건 등)을 받은 적이 있습니까?",risk:"medium"},
+    {id:"m4",text:"보조기구(보호대, 인솔 등)를 사용하고 있습니까?",risk:"low"},
+    {id:"m5",text:"반복적으로 부상이 발생하는 특정 부위가 있습니까?",risk:"medium"},
+    {id:"m6",text:"척추 관련 질환(척추측만증, 디스크 등)을 진단받은 적이 있습니까?",risk:"high"},
+    {id:"m7",text:"한쪽 눈, 한쪽 신장, 한쪽 고환 등 쌍기관(paired organ) 중 하나가 없거나 기능하지 않습니까?",risk:"high"},
+  ],
+  neuro:[
+    {id:"n1",text:"뇌진탕을 진단받은 적이 있습니까?",risk:"high"},
+    {id:"n2",text:"뇌진탕 진단을 받은 경우, 총 몇 회입니까?",risk:"high",type:"number"},
+    {id:"n3",text:"뇌진탕 후 두통, 어지러움, 집중력 저하 등 후유증이 지속된 적이 있습니까?",risk:"critical"},
+    {id:"n4",text:"간질/경련 발작을 진단받은 적이 있습니까?",risk:"high"},
+    {id:"n5",text:"경추(목) 부위 손상을 경험한 적이 있습니까?",risk:"high"},
+    {id:"n6",text:"사지의 저림, 감각 이상, 또는 근력 약화를 경험한 적이 있습니까?",risk:"medium"},
+  ],
+  general:[
+    {id:"g1",text:"열사병이나 열관련 질환을 경험한 적이 있습니까?",risk:"medium"},
+    {id:"g2",text:"겸상적혈구 특성(sickle cell trait)을 진단받은 적이 있습니까?",risk:"high"},
+    {id:"g3",text:"천식이나 운동유발성 기관지경련을 진단받은 적이 있습니까?",risk:"medium"},
+    {id:"g4",text:"당뇨병을 진단받은 적이 있습니까?",risk:"medium"},
+    {id:"g5",text:"피부 질환(백선, 농가진, 단순포진 등)이 현재 있습니까?",risk:"low"},
+    {id:"g6",text:"최근 체중의 급격한 변화(증가 또는 감소)가 있었습니까?",risk:"medium"},
+    {id:"g7",text:"체중 조절을 위해 구토, 설사제, 이뇨제 등을 사용한 적이 있습니까?",risk:"high"},
+    {id:"g8",text:"월경이 불규칙하거나 무월경인 적이 있습니까? (해당 시)",risk:"medium"},
+    {id:"g9",text:"정신건강 관련 진단(우울증, 불안 등)을 받은 적이 있습니까?",risk:"medium"},
+    {id:"g10",text:"시력 교정 없이 한쪽 눈의 시력이 20/40 미만입니까?",risk:"medium"},
+  ],
+};
+
+const RC={critical:{color:"#dc2626",bg:"#fef2f2",label:"매우 높음"},high:{color:"#ea580c",bg:"#fff7ed",label:"높음"},medium:{color:"#d97706",bg:"#fffbeb",label:"보통"},low:{color:"#6b7280",bg:"#f9fafb",label:"낮음"}};
+const rc=r=>RC[r]||RC.low;
+
+/* ─── PDF (새 창 인쇄 방식 — 한글 100% 호환) ─── */
+function makePDF(data,res){
+  const today=new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'});
+  const bmi=data.height&&data.weight?(data.weight/((data.height/100)**2)).toFixed(1):'—';
+
+  let flagHTML='';
+  if(res.crit.length||res.high.length){
+    flagHTML=`<h3 style="color:#dc2626;margin:14pt 0 6pt;font-size:11pt;border-bottom:1.5px solid #dc2626;padding-bottom:3pt">🚩 식별된 위험 요인</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:9pt">
+      <tr style="background:#f1f5f9"><th style="padding:5pt 8pt;text-align:left;border:1px solid #e2e8f0">영역</th><th style="padding:5pt 8pt;text-align:left;border:1px solid #e2e8f0">위험도</th><th style="padding:5pt 8pt;text-align:left;border:1px solid #e2e8f0">항목</th></tr>
+      ${[...res.crit,...res.high].map(q=>`<tr><td style="padding:4pt 8pt;border:1px solid #e2e8f0;font-weight:600">${q.section}</td><td style="padding:4pt 8pt;border:1px solid #e2e8f0;color:${rc(q.risk).color};font-weight:700">${rc(q.risk).label}</td><td style="padding:4pt 8pt;border:1px solid #e2e8f0">${q.text}</td></tr>`).join('')}
+    </table>`;
+  }
+
+  const sNames={history:'병력 조사',cardiac:'심혈관 선별검사',musculo:'근골격계 검사',neuro:'신경학적/뇌진탕 평가',general:'일반 건강 평가'};
+  let detailHTML='';
+  Object.entries(QS).forEach(([k,qs])=>{
+    detailHTML+=`<h3 style="margin:12pt 0 5pt;font-size:10.5pt;color:#334155;border-bottom:1px solid #e2e8f0;padding-bottom:3pt">${sNames[k]}</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:8.5pt;margin-bottom:4pt">
+      <tr style="background:#f8fafc"><th style="padding:3pt 6pt;text-align:left;border:1px solid #e2e8f0;width:58%">질문</th><th style="padding:3pt 6pt;text-align:center;border:1px solid #e2e8f0;width:14%">위험도</th><th style="padding:3pt 6pt;text-align:center;border:1px solid #e2e8f0;width:28%">응답</th></tr>
+      ${qs.map(q=>{const a=data[k]?.[q.id]||'미응답';const y=a==='예';return`<tr style="${y?'background:'+rc(q.risk).bg:''}"><td style="padding:3pt 6pt;border:1px solid #e2e8f0">${q.text}</td><td style="padding:3pt 6pt;border:1px solid #e2e8f0;text-align:center;color:${rc(q.risk).color};font-weight:600">${rc(q.risk).label}</td><td style="padding:3pt 6pt;border:1px solid #e2e8f0;text-align:center;font-weight:${y?'700':'400'};color:${y?rc(q.risk).color:'#64748b'}">${a}</td></tr>`;}).join('')}
+    </table>`;
+  });
+
+  const htmlContent=`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"/>
+<title>PPE 보고서 — ${data.name||'선수'}</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Noto Sans KR','맑은 고딕','Malgun Gothic',sans-serif;color:#1e293b;line-height:1.7;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .page{width:210mm;min-height:297mm;margin:0 auto;padding:18mm 16mm;font-size:10.5pt}
+  @media print{
+    body{margin:0}
+    .page{padding:14mm 14mm;width:100%;min-height:auto}
+    .no-print{display:none!important}
+    @page{size:A4;margin:8mm}
+  }
+  @media screen{
+    body{background:#e2e8f0;padding:20px 0}
+    .page{background:#fff;box-shadow:0 2px 20px rgba(0,0,0,.15);margin-bottom:20px;border-radius:4px}
+  }
+  table{border-collapse:collapse;width:100%}
+  .page-break{page-break-before:always}
+</style></head><body>
+
+<div class="no-print" style="position:fixed;top:0;left:0;right:0;background:#0f172a;padding:12px 24px;display:flex;justify-content:center;align-items:center;gap:16px;z-index:999;box-shadow:0 2px 12px rgba(0,0,0,.3)">
+  <span style="color:#f1f5f9;font-size:14px;font-weight:600">📄 PPE 보고서가 준비되었습니다</span>
+  <button onclick="window.print()" style="padding:10px 28px;background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">🖨️ PDF 저장 / 인쇄</button>
+  <span style="color:#94a3b8;font-size:12px">인쇄 대화상자에서 "PDF로 저장" 선택</span>
+</div>
+<div class="no-print" style="height:60px"></div>
+
+<div class="page">
+  <div style="text-align:center;margin-bottom:18pt;border-bottom:3px double #1e40af;padding-bottom:14pt">
+    <h1 style="font-size:18pt;color:#0f172a;margin:0 0 3pt;letter-spacing:-0.5pt">스포츠 참가 전 평가 (PPE) 보고서</h1>
+    <p style="font-size:9.5pt;color:#64748b;margin:0">Preparticipation Evaluation Report</p>
+    <p style="font-size:8.5pt;color:#94a3b8;margin:3pt 0 0">평가일: ${today}</p>
+  </div>
+
+  <h3 style="margin:0 0 6pt;font-size:11pt;color:#1e40af;border-bottom:1.5px solid #1e40af;padding-bottom:3pt">👤 선수 정보</h3>
+  <table style="font-size:9.5pt;margin-bottom:10pt">
+    <tr><td style="padding:4pt 8pt;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600;width:20%">이름</td><td style="padding:4pt 8pt;border:1px solid #e2e8f0;width:30%">${data.name||'—'}</td><td style="padding:4pt 8pt;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600;width:20%">나이/성별</td><td style="padding:4pt 8pt;border:1px solid #e2e8f0;width:30%">${data.age||'—'}세 / ${data.sex||'—'}</td></tr>
+    <tr><td style="padding:4pt 8pt;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600">소속</td><td style="padding:4pt 8pt;border:1px solid #e2e8f0">${data.team||'—'}</td><td style="padding:4pt 8pt;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600">종목</td><td style="padding:4pt 8pt;border:1px solid #e2e8f0">${data.sport||'—'} (${data.sport?CONTACT[data.sport]:'—'})</td></tr>
+    <tr><td style="padding:4pt 8pt;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600">신장/체중</td><td style="padding:4pt 8pt;border:1px solid #e2e8f0">${data.height||'—'}cm / ${data.weight||'—'}kg</td><td style="padding:4pt 8pt;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600">BMI</td><td style="padding:4pt 8pt;border:1px solid #e2e8f0">${bmi}</td></tr>
+    <tr><td style="padding:4pt 8pt;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600">포지션</td><td style="padding:4pt 8pt;border:1px solid #e2e8f0">${data.position||'—'}</td><td style="padding:4pt 8pt;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600">우세손</td><td style="padding:4pt 8pt;border:1px solid #e2e8f0">${data.dominantHand||'—'}</td></tr>
+  </table>
+
+  <div style="background:${res.clBg};border:2px solid ${res.clColor}40;border-radius:6pt;padding:12pt 14pt;margin-bottom:12pt">
+    <h2 style="color:${res.clColor};font-size:13pt;margin:0 0 5pt">${res.cl}</h2>
+    <p style="font-size:9.5pt;color:#475569;margin:0">${res.clDesc}</p>
+  </div>
+
+  <div style="display:flex;gap:8pt;margin-bottom:12pt">
+    ${[{l:'매우 높음',c:res.crit.length,co:'#dc2626',bg:'#fef2f2'},{l:'높음',c:res.high.length,co:'#ea580c',bg:'#fff7ed'},{l:'보통',c:res.med.length,co:'#d97706',bg:'#fffbeb'},{l:'응답률',c:res.prog+'%',co:'#3b82f6',bg:'#eff6ff'}].map(s=>`<div style="flex:1;text-align:center;background:${s.bg};border-radius:5pt;padding:7pt"><div style="font-size:18pt;font-weight:800;color:${s.co}">${s.c}</div><div style="font-size:7.5pt;color:${s.co};font-weight:600">${s.l}</div></div>`).join('')}
+  </div>
+
+  ${flagHTML}
+
+  <h3 style="color:#166534;margin:14pt 0 6pt;font-size:11pt;border-bottom:1.5px solid #16a34a;padding-bottom:3pt">📋 권고사항</h3>
+  <ol style="padding-left:16pt;font-size:9.5pt;color:#334155">${res.recs.map(r=>`<li style="margin-bottom:3pt">${r}</li>`).join('')}</ol>
+</div>
+
+<div class="page page-break">
+  <h2 style="font-size:13pt;color:#0f172a;margin:0 0 8pt;border-bottom:2px solid #334155;padding-bottom:5pt">📝 전체 설문 응답 상세</h2>
+  ${detailHTML}
+
+  <div style="margin-top:20pt;padding-top:10pt;border-top:2px double #cbd5e1">
+    <h3 style="margin:0 0 5pt;font-size:9.5pt;color:#475569">참고 기준</h3>
+    <ul style="padding-left:14pt;font-size:8pt;color:#94a3b8;line-height:1.8"><li>PPE Monograph 5th Edition (2019)</li><li>AHA 14-Element Cardiovascular Screening</li><li>대한스포츠의학회 스포츠 참가 전 의학 평가 가이드라인</li><li>대한비만학회 BMI 기준 (아시아-태평양 기준)</li><li>국민체육진흥공단 선수 건강검진 지침</li></ul>
+    <p style="font-size:7.5pt;color:#94a3b8;margin-top:6pt;font-style:italic">※ 본 평가 도구는 교육 목적으로 제작되었으며, 실제 임상 의사결정을 대체하지 않습니다.</p>
+  </div>
+
+  <div style="text-align:center;margin-top:36pt;padding-top:14pt;border-top:1px solid #e2e8f0">
+    <table style="width:80%;margin:0 auto;font-size:9.5pt"><tr><td style="text-align:center;padding:18pt 8pt;width:50%;vertical-align:bottom"><div style="border-top:1px solid #334155;padding-top:5pt">평가자 서명</div></td><td style="text-align:center;padding:18pt 8pt;width:50%;vertical-align:bottom"><div style="border-top:1px solid #334155;padding-top:5pt">선수(보호자) 서명</div></td></tr></table>
+    <p style="font-size:7pt;color:#cbd5e1;margin-top:10pt">PPE Interactive Assessment Tool — ${today}</p>
+  </div>
+</div>
+</body></html>`;
+
+  const printWin = window.open('','_blank','width=900,height=700');
+  if(!printWin){alert('팝업이 차단되었습니다. 팝업 차단을 해제해 주세요.');return;}
+  printWin.document.write(htmlContent);
+  printWin.document.close();
+  // 폰트 로딩 대기 후 자동 인쇄
+  printWin.onload = function(){
+    setTimeout(function(){ printWin.print(); }, 500);
+  };
+}
+
+/* ─── QuestionCard ─── */
+function QCard({q,ans,set}){
+  const r=rc(q.risk);const y=ans==='예';
+  return(
+    <div style={{background:y?r.bg:'#fff',border:`1.5px solid ${y?r.color+'40':'#e2e8f0'}`,borderRadius:12,padding:'14px 18px',transition:'all .25s'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:14}}>
+        <div style={{flex:1}}>
+          <p style={{margin:0,fontSize:13.5,color:'#1e293b',lineHeight:1.65,fontWeight:500}}>{q.text}</p>
+          <span style={{display:'inline-block',marginTop:5,fontSize:10,fontWeight:700,color:r.color,background:r.color+'15',padding:'2px 7px',borderRadius:4}}>위험도: {r.label}</span>
+        </div>
+        <div style={{display:'flex',gap:6,flexShrink:0,marginTop:2}}>
+          {['예','아니오'].map(o=>(
+            <button key={o} onClick={()=>set(q.id,o)} style={{padding:'7px 16px',borderRadius:8,border:`1.5px solid ${ans===o?(o==='예'?r.color:'#16a34a'):'#d1d5db'}`,background:ans===o?(o==='예'?r.color:'#16a34a'):'#fff',color:ans===o?'#fff':'#64748b',fontSize:13,fontWeight:600,minWidth:50,transition:'all .2s'}}>{o}</button>
+          ))}
+        </div>
+      </div>
+      {q.type==='number'&&(
+        <input type="number" min={0} max={20} placeholder="횟수 입력" value={ans&&!isNaN(ans)?ans:''} onChange={e=>set(q.id,e.target.value)} style={{marginTop:10,padding:'7px 12px',borderRadius:8,border:'1.5px solid #d1d5db',fontSize:14,width:130}}/>
+      )}
+    </div>
+  );
+}
+
+function Banner({bg,bd,co,icon,children}){
+  return <div style={{background:bg,borderRadius:12,padding:14,marginBottom:14,border:`1px solid ${bd}`}}><p style={{margin:0,fontSize:13,color:co,lineHeight:1.65}}><strong>{icon}</strong> {children}</p></div>;
+}
+
+/* ─── APP ─── */
+function App(){
+  const[sec,setSec]=useState(0);
+  const[d,setD]=useState({name:'',age:'',sex:'',sport:'',team:'',position:'',height:'',weight:'',dominantHand:'오른손',history:{},cardiac:{},musculo:{},neuro:{},general:{}});
+  const[anim,setAnim]=useState(true);
+  const cRef=useRef(null);
+
+  useEffect(()=>{setAnim(false);const t=setTimeout(()=>setAnim(true),50);return()=>clearTimeout(t)},[sec]);
+
+  const up=(f,v)=>setD(p=>({...p,[f]:v}));
+  const upS=(s,id,v)=>setD(p=>({...p,[s]:{...p[s],[id]:v}}));
+  const bmi=d.height&&d.weight?(d.weight/((d.height/100)**2)).toFixed(1):null;
+  const goTo=i=>{setSec(i);if(cRef.current)cRef.current.scrollTop=0};
+
+  // Calc
+  const allA={...d.history,...d.cardiac,...d.musculo,...d.neuro,...d.general};
+  const allQ=[...QS.history.map(q=>({...q,section:'병력'})),...QS.cardiac.map(q=>({...q,section:'심혈관'})),...QS.musculo.map(q=>({...q,section:'근골격계'})),...QS.neuro.map(q=>({...q,section:'신경학적'})),...QS.general.map(q=>({...q,section:'일반건강'}))];
+  const crit=[],high=[],med=[];
+  allQ.forEach(q=>{if(allA[q.id]==='예'){if(q.risk==='critical')crit.push(q);else if(q.risk==='high')high.push(q);else if(q.risk==='medium')med.push(q)}});
+  const cc=parseInt(d.neuro?.n2)||0;
+
+  let cl,clColor,clBg,clDesc,recs;
+  if(crit.length>0||cc>=3){cl="4등급: 추가 전문 평가 필요 (참가 보류)";clColor="#dc2626";clBg="#fef2f2";clDesc="생명을 위협할 수 있는 위험 요인이 식별되었습니다. 전문의 의뢰 및 정밀 검사 완료 전까지 스포츠 참가를 보류합니다.";recs=["전문의(심장내과, 신경과 등) 의뢰","정밀 검사(심전도, 심초음파, MRI 등) 시행","검사 결과에 따른 재평가 후 참가 여부 최종 판정","한국스포츠의학회 가이드라인에 따른 단계적 복귀 프로토콜 적용"];}
+  else if(high.length>=2){cl="3등급: 특정 스포츠 제한적 참가";clColor="#ea580c";clBg="#fff7ed";clDesc="복수의 고위험 요인이 식별되었습니다. 참가 종목 및 활동 수준에 대한 제한이 필요할 수 있습니다.";recs=["접촉/충돌 스포츠 참가 시 추가 평가 권장","개별 위험 요인에 대한 의학적 관리 계획 수립","보호장비 착용 및 활동 수준 단계적 조절","정기적 추적 관찰 일정 수립"];}
+  else if(high.length>=1||med.length>=3){cl="2등급: 추가 검사/평가 보류 중 참가 가능";clColor="#d97706";clBg="#fffbeb";clDesc="일부 위험 요인이 식별되었으나, 추가 평가를 진행하면서 조건부 참가가 가능합니다.";recs=["식별된 위험 요인에 대한 추가 평가 일정 수립","팀 의무 담당자(athletic trainer)에게 관련 정보 전달","자가 관리 교육 및 응급상황 대응 계획 수립","다음 정기 평가 시 재검토"];}
+  else{cl="1등급: 제한 없이 완전한 참가 허용";clColor="#16a34a";clBg="#f0fdf4";clDesc="현재 식별된 중대한 위험 요인이 없습니다. 모든 스포츠 활동에 제한 없이 참가 가능합니다.";recs=["연 1회 정기 PPE 재평가","부상 또는 질병 발생 시 즉시 의료진 상담","적절한 준비운동 및 정리운동 실시","수분 섭취 및 영양 관리 유지"];}
+
+  const totalAns=Object.keys(allA).filter(k=>allA[k]==='예'||allA[k]==='아니오').length;
+  const prog=Math.round((totalAns/allQ.length)*100);
+  const res={crit,high,med,cl,clColor,clBg,clDesc,recs,prog};
+
+  const doPDF=()=>{makePDF(d,res)};
+
+  const renderQs=(qs,key)=><div style={{display:'flex',flexDirection:'column',gap:10}}>{qs.map(q=><QCard key={q.id} q={q} ans={d[key]?.[q.id]} set={(id,v)=>upS(key,id,v)}/>)}</div>;
+
+  const renderContent=()=>{
+    const s=SECTIONS[sec];
+    if(s.id==='info') return(
+      <div style={{display:'flex',flexDirection:'column',gap:18}}>
+        <Banner bg="#eff6ff" bd="#bfdbfe" co="#1e40af" icon="💡 안내:">PPE는 선수의 안전한 스포츠 참가를 위한 사전 평가입니다. 모든 항목을 정확하게 기입해 주세요. 본 평가는 교육 목적으로 설계되었습니다.</Banner>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+          {[{l:"이름",f:"name",ph:"홍길동"},{l:"나이",f:"age",ph:"22",t:"number"},{l:"소속팀",f:"team",ph:"광주보건대학교"},{l:"포지션/종별",f:"position",ph:"미드필더 / 대학부"},{l:"신장 (cm)",f:"height",ph:"175",t:"number"},{l:"체중 (kg)",f:"weight",ph:"72",t:"number"}].map(x=>(
+            <div key={x.f}><label style={{fontSize:12.5,fontWeight:600,color:'#475569',marginBottom:5,display:'block'}}>{x.l}</label>
+            <input type={x.t||"text"} placeholder={x.ph} value={d[x.f]} onChange={e=>up(x.f,e.target.value)} style={{width:'100%',padding:'9px 13px',borderRadius:10,border:'1.5px solid #d1d5db',fontSize:14,boxSizing:'border-box',transition:'border-color .2s'}}/></div>
+          ))}
+          <div><label style={{fontSize:12.5,fontWeight:600,color:'#475569',marginBottom:5,display:'block'}}>성별</label>
+            <div style={{display:'flex',gap:8}}>{['남','여'].map(x=><button key={x} onClick={()=>up('sex',x)} style={{flex:1,padding:'9px',borderRadius:10,border:`1.5px solid ${d.sex===x?'#3b82f6':'#d1d5db'}`,background:d.sex===x?'#eff6ff':'#fff',color:d.sex===x?'#1d4ed8':'#64748b',fontWeight:600,fontSize:14}}>{x}</button>)}</div>
+          </div>
+          <div><label style={{fontSize:12.5,fontWeight:600,color:'#475569',marginBottom:5,display:'block'}}>우세손</label>
+            <div style={{display:'flex',gap:6}}>{['오른손','왼손','양손'].map(x=><button key={x} onClick={()=>up('dominantHand',x)} style={{flex:1,padding:'9px',borderRadius:10,border:`1.5px solid ${d.dominantHand===x?'#3b82f6':'#d1d5db'}`,background:d.dominantHand===x?'#eff6ff':'#fff',color:d.dominantHand===x?'#1d4ed8':'#64748b',fontWeight:600,fontSize:12}}>{x}</button>)}</div>
+          </div>
+          <div style={{gridColumn:'1/-1'}}><label style={{fontSize:12.5,fontWeight:600,color:'#475569',marginBottom:5,display:'block'}}>참가 종목</label>
+            <div style={{display:'flex',flexWrap:'wrap',gap:7}}>{SPORTS.map(x=><button key={x} onClick={()=>up('sport',x)} style={{padding:'6px 13px',borderRadius:20,border:`1.5px solid ${d.sport===x?'#3b82f6':'#e2e8f0'}`,background:d.sport===x?'#3b82f6':'#fff',color:d.sport===x?'#fff':'#64748b',fontSize:12.5,fontWeight:500,transition:'all .2s'}}>{x}</button>)}</div>
+          </div>
+        </div>
+        {bmi&&<div style={{background:parseFloat(bmi)<18.5||parseFloat(bmi)>=30?'#fef2f2':parseFloat(bmi)>=25?'#fffbeb':'#f0fdf4',borderRadius:12,padding:14,border:`1px solid ${parseFloat(bmi)<18.5||parseFloat(bmi)>=30?'#fecaca':parseFloat(bmi)>=25?'#fde68a':'#bbf7d0'}`}}>
+          <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+            <span style={{fontSize:24,fontWeight:700,color:'#1e293b'}}>BMI {bmi}</span>
+            <span style={{fontSize:12,fontWeight:600,padding:'3px 9px',borderRadius:6,color:'#fff',background:parseFloat(bmi)<18.5?'#dc2626':parseFloat(bmi)<23?'#16a34a':parseFloat(bmi)<25?'#d97706':'#dc2626'}}>{parseFloat(bmi)<18.5?'저체중':parseFloat(bmi)<23?'정상':parseFloat(bmi)<25?'과체중':parseFloat(bmi)<30?'비만':'고도비만'}</span>
+            <span style={{fontSize:11,color:'#64748b'}}>(대한비만학회 기준)</span>
+          </div>
+          {d.sport&&<p style={{margin:'6px 0 0',fontSize:13,color:'#475569'}}><strong>{d.sport}</strong> — 접촉 수준: <strong>{CONTACT[d.sport]}</strong></p>}
+        </div>}
+      </div>
+    );
+    if(s.id==='history') return renderQs(QS.history,'history');
+    if(s.id==='cardiac') return<div><Banner bg="#fef2f2" bd="#fecaca" co="#991b1b" icon="⚠️ 중요:">심혈관 선별검사는 AHA 14항목 권고안 및 한국스포츠의학회 가이드라인 기반입니다. 돌연 심장사(SCD) 예방 핵심 영역입니다.</Banner>{renderQs(QS.cardiac,'cardiac')}</div>;
+    if(s.id==='musculo') return<div><Banner bg="#eff6ff" bd="#bfdbfe" co="#1e40af" icon="💡 참고:">근골격계 검사는 2-minute orthopedic screening 및 관절별 기능 평가를 포함합니다.</Banner>{renderQs(QS.musculo,'musculo')}</div>;
+    if(s.id==='neuro') return<div><Banner bg="#fefce8" bd="#fde68a" co="#854d0e" icon="🧠 참고:">대한스포츠의학회 뇌진탕 관리 지침: 뇌진탕 3회 이상 시 해당 시즌 참가 중단 권고. 단계적 복귀 프로토콜 필수.</Banner>{renderQs(QS.neuro,'neuro')}</div>;
+    if(s.id==='general') return renderQs(QS.general,'general');
+
+    // RESULT
+    return(
+      <div style={{display:'flex',flexDirection:'column',gap:18}}>
+        <div style={{display:'flex',justifyContent:'flex-end'}}>
+          <button onClick={doPDF} style={{padding:'11px 26px',borderRadius:10,border:'none',background:'linear-gradient(135deg,#dc2626,#ea580c)',color:'#fff',fontSize:14,fontWeight:700,display:'flex',alignItems:'center',gap:8,boxShadow:'0 4px 14px rgba(220,38,38,.3)',transition:'all .2s'}}>📄 PDF 보고서 출력</button>
+        </div>
+        <div style={{background:clBg,borderRadius:16,padding:22,border:`2px solid ${clColor}30`,position:'relative',overflow:'hidden'}}>
+          <div style={{position:'absolute',top:0,left:0,width:6,height:'100%',background:clColor,borderRadius:'16px 0 0 16px'}}/>
+          <h2 style={{margin:'0 0 8px',fontSize:19,color:clColor,fontWeight:800}}>{cl}</h2>
+          <p style={{margin:0,fontSize:14,color:'#475569',lineHeight:1.7}}>{clDesc}</p>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
+          {[{l:'매우 높음',c:crit.length,co:'#dc2626',bg:'#fef2f2'},{l:'높음',c:high.length,co:'#ea580c',bg:'#fff7ed'},{l:'보통',c:med.length,co:'#d97706',bg:'#fffbeb'},{l:'응답률',c:prog+'%',co:'#3b82f6',bg:'#eff6ff'}].map(x=><div key={x.l} style={{background:x.bg,borderRadius:12,padding:'14px 10px',textAlign:'center',border:`1px solid ${x.co}20`}}><div style={{fontSize:26,fontWeight:800,color:x.co}}>{x.c}</div><div style={{fontSize:11.5,color:x.co,fontWeight:600,marginTop:3}}>{x.l}</div></div>)}
+        </div>
+        {d.name&&<div style={{background:'#f8fafc',borderRadius:12,padding:14,border:'1px solid #e2e8f0'}}><h3 style={{margin:'0 0 8px',fontSize:14.5,color:'#334155'}}>선수 정보 요약</h3><div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,fontSize:13,color:'#475569'}}><div><strong>이름:</strong> {d.name}</div><div><strong>나이/성별:</strong> {d.age}세 / {d.sex}</div><div><strong>종목:</strong> {d.sport||'—'}</div><div><strong>소속:</strong> {d.team||'—'}</div><div><strong>BMI:</strong> {bmi||'—'}</div><div><strong>접촉:</strong> {d.sport?CONTACT[d.sport]:'—'}</div></div></div>}
+        {(crit.length>0||high.length>0)&&<div style={{background:'#fff',borderRadius:12,padding:14,border:'1px solid #e2e8f0'}}><h3 style={{margin:'0 0 10px',fontSize:14.5,color:'#334155'}}>🚩 식별된 위험 요인</h3><div style={{display:'flex',flexDirection:'column',gap:7}}>{[...crit,...high].map(q=><div key={q.id} style={{display:'flex',alignItems:'center',gap:9,padding:'9px 12px',background:rc(q.risk).bg,borderRadius:8,border:`1px solid ${rc(q.risk).color}25`}}><span style={{fontSize:10.5,fontWeight:700,color:'#fff',background:rc(q.risk).color,padding:'2px 7px',borderRadius:4,flexShrink:0}}>{q.section}</span><span style={{fontSize:12.5,color:'#334155',lineHeight:1.5}}>{q.text}</span></div>)}</div></div>}
+        <div style={{background:'#f0fdf4',borderRadius:12,padding:14,border:'1px solid #bbf7d0'}}><h3 style={{margin:'0 0 10px',fontSize:14.5,color:'#166534'}}>📋 권고사항</h3><div style={{display:'flex',flexDirection:'column',gap:7}}>{recs.map((r,i)=><div key={i} style={{display:'flex',gap:9,alignItems:'flex-start'}}><span style={{flexShrink:0,width:21,height:21,borderRadius:'50%',background:'#16a34a',color:'#fff',fontSize:11.5,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center'}}>{i+1}</span><span style={{fontSize:13,color:'#334155',lineHeight:1.6}}>{r}</span></div>)}</div></div>
+        <div style={{background:'#f1f5f9',borderRadius:12,padding:14,border:'1px solid #e2e8f0'}}><h3 style={{margin:'0 0 6px',fontSize:13.5,color:'#475569'}}>참고 기준</h3><ul style={{margin:0,paddingLeft:16,fontSize:12,color:'#64748b',lineHeight:2}}><li>PPE Monograph 5th Edition (2019)</li><li>AHA 14-Element Cardiovascular Screening</li><li>대한스포츠의학회 가이드라인</li><li>대한비만학회 BMI 기준</li><li>국민체육진흥공단 선수 건강검진 지침</li></ul><p style={{margin:'10px 0 0',fontSize:11.5,color:'#94a3b8',fontStyle:'italic'}}>※ 본 평가는 교육 목적이며, 실제 임상 의사결정을 대체하지 않습니다.</p></div>
+      </div>
+    );
+  };
+
+  return(
+    <div style={{height:'100vh',display:'flex',flexDirection:'column',background:'linear-gradient(160deg,#0f172a 0%,#1e293b 50%,#0f172a 100%)',fontFamily:"'Noto Sans KR','맑은 고딕',sans-serif"}}>
+      {/* Header */}
+      <div style={{background:'rgba(15,23,42,.95)',backdropFilter:'blur(20px)',borderBottom:'1px solid rgba(255,255,255,.08)',padding:'12px 22px',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          <div style={{width:38,height:38,borderRadius:10,background:'linear-gradient(135deg,#3b82f6,#8b5cf6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:19}}>🏥</div>
+          <div><h1 style={{margin:0,fontSize:16,fontWeight:800,color:'#f1f5f9',letterSpacing:-.3}}>스포츠 참가 전 평가 (PPE)</h1><p style={{margin:0,fontSize:11,color:'#64748b',fontWeight:500}}>Preparticipation Evaluation — 교육용 도구</p></div>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <div style={{textAlign:'right'}}><div style={{fontSize:10.5,color:'#64748b',fontWeight:600}}>진행률</div><div style={{fontSize:14.5,color:'#3b82f6',fontWeight:800}}>{prog}%</div></div>
+          <svg width="42" height="42" viewBox="0 0 48 48"><circle cx="24" cy="24" r="20" fill="none" stroke="rgba(255,255,255,.1)" strokeWidth="3"/><circle cx="24" cy="24" r="20" fill="none" stroke="#3b82f6" strokeWidth="3" strokeLinecap="round" strokeDasharray={`${prog*1.257} 125.7`} transform="rotate(-90 24 24)" style={{transition:'stroke-dasharray .5s'}}/></svg>
+        </div>
+      </div>
+      <div style={{display:'flex',flex:1,overflow:'hidden'}}>
+        {/* Sidebar */}
+        <div className="sidebar-desktop" style={{width:250,background:'rgba(15,23,42,.8)',backdropFilter:'blur(20px)',borderRight:'1px solid rgba(255,255,255,.06)',padding:'18px 0',display:'flex',flexDirection:'column',gap:3,overflowY:'auto',flexShrink:0}}>
+          {SECTIONS.map((s,i)=>{const a=i===sec,done=i<sec;return(
+            <button key={s.id} onClick={()=>goTo(i)} style={{display:'flex',alignItems:'center',gap:11,padding:'11px 18px',border:'none',background:a?'rgba(59,130,246,.15)':'transparent',borderLeft:a?'3px solid #3b82f6':'3px solid transparent',transition:'all .2s'}}>
+              <span style={{width:30,height:30,borderRadius:8,background:a?'#3b82f6':done?'rgba(34,197,94,.2)':'rgba(255,255,255,.05)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,color:done?'#22c55e':'inherit'}}>{done?'✓':s.icon}</span>
+              <div style={{textAlign:'left'}}><div style={{fontSize:12.5,fontWeight:a?700:500,color:a?'#f1f5f9':done?'#94a3b8':'#64748b'}}>{s.title}</div><div style={{fontSize:10.5,color:'#475569',marginTop:1}}>{s.desc}</div></div>
+            </button>
+          )})}
+          <div style={{flex:1}}/>
+          <div style={{padding:'14px 18px',borderTop:'1px solid rgba(255,255,255,.06)'}}><p style={{margin:0,fontSize:10.5,color:'#475569',lineHeight:1.6}}>PPE Monograph 5th Ed.<br/>AHA Screening<br/>한국스포츠의학회 기준</p></div>
+        </div>
+        {/* Content */}
+        <div ref={cRef} className="content-area" style={{flex:1,overflowY:'auto',padding:'26px 34px',background:'linear-gradient(180deg,#f8fafc 0%,#f1f5f9 100%)'}}>
+          <div style={{maxWidth:760,margin:'0 auto',opacity:anim?1:0,transform:anim?'translateY(0)':'translateY(12px)',transition:'opacity .35s,transform .35s'}}>
+            <div style={{marginBottom:22}}>
+              <div style={{display:'flex',alignItems:'center',gap:11,marginBottom:5}}>
+                <span style={{fontSize:26}}>{SECTIONS[sec].icon}</span>
+                <div><h2 style={{margin:0,fontSize:21,fontWeight:800,color:'#0f172a',letterSpacing:-.5}}>{SECTIONS[sec].title}</h2><p style={{margin:'2px 0 0',fontSize:12.5,color:'#64748b'}}>{SECTIONS[sec].desc}{sec>0&&sec<6&&<span style={{marginLeft:8,color:'#94a3b8'}}>— 섹션 {sec}/{SECTIONS.length-1}</span>}</p></div>
+              </div>
+            </div>
+            {renderContent()}
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:28,paddingTop:18,borderTop:'1px solid #e2e8f0'}}>
+              <button onClick={()=>{if(sec>0)goTo(sec-1)}} disabled={sec===0} style={{padding:'11px 22px',borderRadius:10,border:'1.5px solid #d1d5db',background:'#fff',color:sec===0?'#d1d5db':'#475569',fontSize:13.5,fontWeight:600,cursor:sec===0?'not-allowed':'pointer'}}>← 이전</button>
+              <span style={{fontSize:12.5,color:'#94a3b8',fontWeight:500}}>{sec+1}/{SECTIONS.length}</span>
+              <button onClick={()=>{if(sec<SECTIONS.length-1)goTo(sec+1)}} disabled={sec===SECTIONS.length-1} style={{padding:'11px 22px',borderRadius:10,border:'none',background:sec===SECTIONS.length-1?'#e2e8f0':'linear-gradient(135deg,#3b82f6,#6366f1)',color:sec===SECTIONS.length-1?'#94a3b8':'#fff',fontSize:13.5,fontWeight:700,cursor:sec===SECTIONS.length-1?'not-allowed':'pointer',boxShadow:sec<SECTIONS.length-1?'0 4px 12px rgba(59,130,246,.3)':'none'}}>{sec===SECTIONS.length-2?'결과 확인':'다음'} →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
